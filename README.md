@@ -167,10 +167,10 @@ qemu-system-x86_64 -m 4G -enable-kvm -cdrom void-live-x86_64-*.iso
 Чек-лист:
 
 - [ ] сервис стартует и переживает `kill -9` (supervise-daemon/runit)
-- [ ] клиент видит демон (нет `Ipc::Init failed`)
-- [ ] после подключения `cat /etc/resolv.conf` содержит DNS из конфига VPN
-- [ ] `dig +short example.com` работает
-- [ ] после отключения `/etc/resolv.conf` восстановлен
+- [x] клиент видит демон (нет `Ipc::Init failed`)
+- [x] после подключения `cat /etc/resolv.conf` содержит DNS из конфига VPN
+- [x] `dig +short example.com` работает
+- [x] после отключения `/etc/resolv.conf` восстановлен
 - [ ] после `rc-service amneziavpn stop` нет цепочек `amnvpn.*` в `iptables -S`
 - [ ] перезагрузка → всё поднимается само
 
