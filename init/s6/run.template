@@ -1,4 +1,11 @@
 #!/bin/sh
 # @DESC@ (s6)
 exec 2>&1
+
+case "@NAME@" in
+    amneziavpn)
+        rm -f /tmp/AmneziaVPN* /run/AmneziaVPN* /var/run/AmneziaVPN*
+        ;;
+esac
+
 exec "@BIN@" @ARGS@
