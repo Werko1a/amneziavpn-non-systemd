@@ -13,7 +13,8 @@ command_user="root:root"
 if command -v supervise-daemon >/dev/null 2>&1; then
     supervisor="supervise-daemon"
     respawn_delay=1
-    respawn_max=0
+    respawn_max=10
+    respawn_period=60
 else
     command_background=true
 fi
@@ -22,11 +23,39 @@ depend() {
     @OPENRC_DEPS@
 }
 
+cleanup_amnezia_iptables() {
+    for ipt in iptables ip6tables; do
+        if ! command -v "$ipt" >/dev/null 2>&1; then
+            continue
+        fi
+
+        for table in filter nat mangle raw; do
+            # Проверяем наличие таблицы в ядре
+            "$ipt" -t "$table" -L -n >/dev/null 2>&1 || continue
+
+            # 1. Удаляем прыжки (jumps) в цепочки amnvpn из стандартных цепочек
+            "$ipt" -t "$table" -S 2>/dev/null | grep -E '\-j amnvpn\.' | while read -r rule; do
+                del_rule=$(echo "$rule" | sed 's/^-A/-D/')
+                # shellcheck disable=SC2086
+                "$ipt" -t "$table" $del_rule 2>/dev/null || true
+            done
+
+            # 2. Очищаем (-F) и удаляем (-X) сами цепочки amnvpn
+            "$ipt" -t "$table" -S 2>/dev/null | sed -n 's/^-N \(amnvpn[^ ]*\)$/\1/p' | while read -r chain; do
+                "$ipt" -t "$table" -F "$chain" 2>/dev/null || true
+                "$ipt" -t "$table" -X "$chain" 2>/dev/null || true
+            done
+        done
+    done
+}
+
 start_pre() {
     checkpath --directory --owner root:root --mode 0755 /run
     case "@NAME@" in
         amneziavpn)
             checkpath --directory --owner root:root --mode 0755 "@LOGDIR@"
+            # Чистим сокеты и старые lock-файлы перед стартом, если упали с kill -9
+            rm -f /tmp/AmneziaVPN* /run/AmneziaVPN* /var/run/AmneziaVPN*
             ;;
     esac
 }
@@ -34,15 +63,8 @@ start_pre() {
 stop_post() {
     case "@NAME@" in
         amneziavpn)
-            # A hard kill can leave the AmneziaVPN iptables chains behind.
-            if command -v iptables >/dev/null 2>&1; then
-                iptables -S 2>/dev/null \
-                    | sed -n 's/^-N \(amnvpn[^ ]*\)$/\1/p' \
-                    | while read -r chain; do
-                        iptables -F "$chain" 2>/dev/null
-                        iptables -X "$chain" 2>/dev/null
-                    done
-            fi
+            cleanup_amnezia_iptables
+            rm -f /tmp/AmneziaVPN* /run/AmneziaVPN* /var/run/AmneziaVPN*
             ;;
     esac
 }
