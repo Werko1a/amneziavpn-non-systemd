@@ -1,52 +1,57 @@
-# amneziavpn-universal
-
-Запуск официального клиента **AmneziaVPN** на Linux **без systemd** — Gentoo/OpenRC,
-Void/runit, Artix, Alpine, Devuan, Slackware и любых других init-системах.
-
-> Статус: **протестировано (working)**. Базовый стек, сервисы и DNS-мост успешно
-> проверены на живой системе Artix Linux (OpenRC). См. раздел «Тестирование».
+**English** | [Русский](README.ru.md)
 
 ---
 
-## Зачем это нужно
+# amneziavpn-universal
 
-В самом демоне AmneziaVPN (`AmneziaVPN-service`) **нет вызовов systemd**. Это
-обычный Qt-процесс, который слушает unix-сокеты. systemd нужен только в трёх
-местах:
+Run the official **AmneziaVPN** client on Linux **without systemd** — Gentoo/OpenRC,
+Void/runit, Artix, Alpine, Devuan, Slackware, and any other init system.
 
-| Что | Где | Как решаем |
+> Status: **tested (working)**. Base stack, services, and DNS bridge successfully
+> verified on a live Artix Linux (OpenRC) system. See the "Testing" section below.
+
+---
+
+## Why this is needed
+
+The core AmneziaVPN daemon (`AmneziaVPN-service`) has **no hard systemd calls**. It
+is a standard Qt process communicating via Unix domain sockets. systemd is only
+invoked in three places:
+
+| Component | Location | Solution |
 |---|---|---|
-| Запуск и перезапуск демона | `deploy/data/linux/AmneziaVPN.service`, `systemctl` в `post_install.sh` | нативные сервисы с автоперезапуском под любой init |
-| Настройка DNS | `client/platforms/linux/daemon/dnsutilslinux.cpp` — D-Bus `org.freedesktop.resolve1` | D-Bus-мост, который переводит вызовы в `openresolv`/`/etc/resolv.conf` |
-| Сброс DNS-кэша | `RouterLinux::flushDns()` — `systemctl restart nscd/systemd-resolved` | тихо игнорируется, мост делает `nscd -i hosts` |
+| Daemon startup & supervision | `deploy/data/linux/AmneziaVPN.service`, `systemctl` in `post_install.sh` | Native service files with auto-restart for any init system |
+| DNS configuration | `client/platforms/linux/daemon/dnsutilslinux.cpp` — D-Bus `org.freedesktop.resolve1` | D-Bus bridge translating calls to `openresolv`/`/etc/resolv.conf` |
+| Flushing DNS cache | `RouterLinux::flushDns()` — `systemctl restart nscd/systemd-resolved` | Silently ignored; bridge handles `nscd -i hosts` |
 
-Из-за второго пункта после подключения ломается **весь** DNS: демон включает
-iptables-цепочку `amnvpn.a.310.blockDNS`, которая режет 53-й порт, но перенастроить
-резолвер не может. Отсюда «VPN подключился, а интернета нет».
+Due to the second point, **all DNS resolution completely breaks** upon connection:
+the daemon installs an iptables chain (`amnvpn.a.310.blockDNS`) that drops outgoing
+traffic on port 53 to prevent leaks, but fails to configure the system resolver.
+This results in the common symptom: "VPN connected, but no Internet access".
 
-## Что делает установщик
+## What the installer does
 
-1. Находит `AmneziaVPN-service` в `/opt/AmneziaVPN` (или в `--app-dir`).
-2. Определяет init-систему и ставит нативный сервис с **автоперезапуском (переживает `kill -9`)**:
+1. Locates `AmneziaVPN-service` in `/opt/AmneziaVPN` (or `--app-dir`).
+2. Detects your running init system and installs a native service with **auto-restart (survives `kill -9`)**:
    - **OpenRC** — `/etc/init.d/amneziavpn` (`supervise-daemon`)
-   - **runit** — `/etc/sv/amneziavpn` (`runsv` + лог через `svlogd`)
+   - **runit** — `/etc/sv/amneziavpn` (`runsv` + logging via `svlogd`)
    - **s6** — `/etc/s6/sv/amneziavpn` (`s6-supervise`)
-   - **dinit** — `/etc/dinit.d/amneziavpn` (нативный `restart = true`)
-   - **SysVinit / Slackware** — `/etc/init.d/amneziavpn` (встроенный watchdog-надзиратель)
-   - **systemd** — юнит с `Restart=always` (для систем без `systemd-resolved`)
-3. Автоматически зачищает `iptables` / `ip6tables` (прыжки и цепочки во всех таблицах `filter`, `nat`, `mangle`) при остановке службы.
-4. Если `systemd-resolved` отсутствует — ставит DNS-мост `amnezia-dns-bridge`:
-   - поднимает на системной шине D-Bus имя `org.freedesktop.resolve1`;
-   - переводит вызовы в `openresolv`, а если его нет — аккуратно правит `/etc/resolv.conf` с бэкапом и восстановлением;
-   - следит за исчезновением интерфейса и откатывает DNS обратно.
-5. Убирает официальный `/etc/systemd/system/AmneziaVPN.service`, чтобы он не конфликтовал.
-6. Ставит обёртку `/usr/local/bin/AmneziaVPN` (обход бага с Wayland) и `.desktop`-ярлык.
+   - **dinit** — `/etc/dinit.d/amneziavpn` (native `restart = true`)
+   - **SysVinit / Slackware** — `/etc/init.d/amneziavpn` (built-in watchdog supervisor)
+   - **systemd** — unit with `Restart=always` (for systems without `systemd-resolved`)
+3. Automatically purges `iptables` / `ip6tables` (parent rule jumps and custom chains across `filter`, `nat`, and `mangle` tables) upon service stop.
+4. If `systemd-resolved` is absent — installs the `amnezia-dns-bridge` service:
+   - claims the `org.freedesktop.resolve1` name on the D-Bus system bus;
+   - redirects calls to `openresolv`, or safely modifies `/etc/resolv.conf` with automatic backup and restoration;
+   - detects tunnel teardown and cleanly rolls back DNS changes.
+5. Removes the conflicting official `/etc/systemd/system/AmneziaVPN.service` unit.
+6. Installs the `/usr/local/bin/AmneziaVPN` wrapper (handling Wayland compatibility) and `.desktop` launcher.
 
-## Быстрый старт
+## Quick Start
 
-### 1. Распаковать официальный `.run` без его установщика
+### 1. Extract the official `.run` package without running its installer
 
-Официальный инсталлятор жестко завязан на `systemctl`. Поэтому мы не запускаем его, а распаковываем:
+The official installer strictly invokes `systemctl`. We unpack it directly without running its scripts:
 
 ```bash
 git clone https://github.com/Werko1a/amneziavpn-non-systemd.git amneziavpn-universal
@@ -54,11 +59,11 @@ cd amneziavpn-universal
 chmod +x install.sh uninstall.sh fetch-app.sh
 
 sudo ./fetch-app.sh --run ~/Downloads/AmneziaVPN_5.0.3.0_linux_x64.run
-# или скачать автоматически:
+# or download and extract automatically:
 # sudo ./fetch-app.sh --version 5.0.3.0
 ```
 
-Для распаковщика нужен `p7zip` (или `7z`):
+Extractor requires `p7zip` (or `7z`):
 
 ```bash
 # Artix / Arch
@@ -69,21 +74,21 @@ sudo xbps-install -S p7zip
 sudo emerge --ask app-arch/p7zip
 ```
 
-### 2. Установить сервисы
+### 2. Install services
 
 ```bash
 sudo ./install.sh
 ```
 
-Полезные флаги:
+Useful flags:
 
 ```bash
-sudo ./install.sh --no-dns-bridge   # не ставить мост (настрою DNS сам)
-sudo ./install.sh --force-x11       # GUI всегда через XWayland
-sudo ./install.sh --no-start        # только установить, не запускать
+sudo ./install.sh --no-dns-bridge   # do not install DNS bridge (manual DNS setup)
+sudo ./install.sh --force-x11       # force GUI under XWayland
+sudo ./install.sh --no-start        # install services without starting them immediately
 ```
 
-### 3. Проверить
+### 3. Verification
 
 ```bash
 # OpenRC
@@ -94,66 +99,68 @@ sudo rc-service amnezia-dns-bridge status
 sudo sv status amneziavpn
 sudo sv status amnezia-dns-bridge
 
-# логи
+# logs
 tail -f /var/log/AmneziaVPN/AmneziaVPN-service.log
 tail -f /var/log/AmneziaVPN/runit-amnezia-dns-bridge/current
 ```
 
-Запуск GUI: `AmneziaVPN` или `/usr/local/bin/AmneziaVPN`.
+Launch GUI: `AmneziaVPN` or `/usr/local/bin/AmneziaVPN`.
 
-## Удаление
+## Uninstallation
 
 ```bash
-sudo ./uninstall.sh          # снять сервисы, оставить /opt/AmneziaVPN
-sudo ./uninstall.sh --purge  # удалить всё полностью
+sudo ./uninstall.sh          # remove services, keep /opt/AmneziaVPN files
+sudo ./uninstall.sh --purge  # remove everything completely
 ```
 
-## Про Wayland
+## About Wayland
 
-Официальный `.run` собирается со своим встроенным Qt 6.10 **без** wayland-плагина (`libqwayland`). Обёртка `/usr/local/bin/AmneziaVPN` при обнаружении Wayland-сессии сама переключает запуск на XWayland (`QT_QPA_PLATFORM=xcb`).
+The official `.run` bundle ships with its own Qt 6.10 build **without** the Wayland
+platform plugin (`libqwayland`). The wrapper at `/usr/local/bin/AmneziaVPN` automatically
+detects Wayland sessions and falls back to XWayland (`QT_QPA_PLATFORM=xcb`).
 
-Подробнее: [docs/wayland.md](docs/wayland.md).
+More details: [docs/wayland.md](docs/wayland.md).
 
-## Про DNS
+## About DNS
 
-Подробно о проверке на утечки и ручной настройке: [docs/dns.md](docs/dns.md).
+For troubleshooting leaks and manual configuration: [docs/dns.md](docs/dns.md).
 
-Короткая проверка работы моста:
+Quick check for DNS bridge status:
 
 ```bash
-# что сейчас в resolv.conf
+# current resolv.conf contents
 cat /etc/resolv.conf
 
-# активен ли мост на шине D-Bus
+# verify bridge owns the D-Bus interface
 dbus-send --system --print-reply --dest=org.freedesktop.DBus \
   /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner \
   string:org.freedesktop.resolve1
 ```
 
-## Структура
+## Repository Structure
 
 ```
 install.sh / uninstall.sh / fetch-app.sh
-lib/common.sh                 детект init, поиск бинарников, шаблоны
-init/<init>/service.template  шаблоны нативных сервисов
-dns/amnezia-dns-bridge.py     D-Bus-шим org.freedesktop.resolve1
-dns/org.freedesktop.resolve1.conf  политика D-Bus (только root)
+lib/common.sh                 init detection, binary discovery, template rendering
+init/<init>/service.template  native service templates
+dns/amnezia-dns-bridge.py     D-Bus shim for org.freedesktop.resolve1
+dns/org.freedesktop.resolve1.conf  D-Bus policy (root access only)
 docs/                         wayland, dns, s6, slackware
-patches/                      нативный патч (в разработке)
+patches/                      native C++ patch (in progress)
 ```
 
-## Тестирование
+## Testing
 
-Протестировано на живой системе **Artix Linux (OpenRC)**:
+Tested and verified on a live **Artix Linux (OpenRC)** system:
 
-- [x] сервис стартует и переживает `kill -9` (`supervise-daemon` мгновенно воскрешает процесс)
-- [x] клиент видит демон (нет `Ipc::Init failed`)
-- [x] после подключения `cat /etc/resolv.conf` содержит DNS из конфига VPN
-- [x] `dig +short example.com` работает корректно через туннель
-- [x] после отключения `/etc/resolv.conf` полностью восстанавливается в исходное состояние
-- [x] после остановки сервиса нет зависших цепочек `amnvpn.*` в `iptables -S` (полная зачистка всех таблиц)
-- [x] автозапуск после загрузки настроен во всех поддерживаемых init-системах
+- [x] service starts and survives `kill -9` (`supervise-daemon` respawns it instantly)
+- [x] GUI client connects to daemon (no `Ipc::Init failed`)
+- [x] `/etc/resolv.conf` receives VPN DNS servers after connecting
+- [x] `dig +short example.com` resolves properly through the tunnel
+- [x] `/etc/resolv.conf` is completely restored upon disconnecting
+- [x] no leftover `amnvpn.*` chains or rules in `iptables -S` after service stop (full table cleanup)
+- [x] boot autostart configured across all supported init systems
 
-## Лицензия
+## License
 
-GPL-3.0-or-later, как и сам AmneziaVPN.
+GPL-3.0-or-later, matching the AmneziaVPN license.
