@@ -48,8 +48,20 @@ start() {
             rm -f /tmp/AmneziaVPN* /run/AmneziaVPN* /var/run/AmneziaVPN*
             ;;
     esac
-    nohup "$DAEMON" $ARGS >>"$LOGFILE" 2>&1 &
+
+    (
+        while true; do
+            case "$NAME" in
+                amneziavpn)
+                    rm -f /tmp/AmneziaVPN* /run/AmneziaVPN* /var/run/AmneziaVPN*
+                    ;;
+            esac
+            "$DAEMON" $ARGS
+            sleep 1
+        done
+    ) >>"$LOGFILE" 2>&1 &
     echo $! > "$PIDFILE"
+
     sleep 1
     if ! kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
         echo "$NAME failed to start, see $LOGFILE" >&2
@@ -66,13 +78,16 @@ stop() {
     PID="$(cat "$PIDFILE")"
     echo "Stopping $NAME"
     kill "$PID" 2>/dev/null || true
+    rm -f "$PIDFILE"
+
+    pkill -TERM -f "$DAEMON" 2>/dev/null || true
     i=0
-    while kill -0 "$PID" 2>/dev/null && [ "$i" -lt 10 ]; do
+    while pgrep -f "$DAEMON" >/dev/null 2>&1 && [ "$i" -lt 10 ]; do
         sleep 1
         i=$((i + 1))
     done
-    kill -9 "$PID" 2>/dev/null || true
-    rm -f "$PIDFILE"
+    pkill -9 -f "$DAEMON" 2>/dev/null || true
+
     case "$NAME" in
         amneziavpn)
             cleanup_amnezia_iptables
@@ -83,7 +98,7 @@ stop() {
 
 status() {
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-        echo "$NAME is running (pid $(cat "$PIDFILE"))"
+        echo "$NAME is running (watchdog pid $(cat "$PIDFILE"))"
     else
         echo "$NAME is not running"
         return 1
