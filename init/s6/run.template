@@ -1,0 +1,4 @@
+#!/bin/sh
+# @DESC@ (s6)
+exec 2>&1
+exec "@BIN@" @ARGS@

@@ -1,0 +1,80 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          @NAME@
+# Required-Start:    $network $remote_fs $syslog
+# Required-Stop:     $network $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: @DESC@
+### END INIT INFO
+
+NAME="@NAME@"
+DAEMON="@BIN@"
+ARGS="@ARGS@"
+PIDFILE="/run/$NAME.pid"
+LOGFILE="@LOGDIR@/$NAME.out"
+
+flush_amnezia_chains() {
+    command -v iptables >/dev/null 2>&1 || return 0
+    iptables -S 2>/dev/null \
+        | sed -n 's/^-N \(amnvpn[^ ]*\)$/\1/p' \
+        | while read -r chain; do
+            iptables -F "$chain" 2>/dev/null
+            iptables -X "$chain" 2>/dev/null
+        done
+}
+
+start() {
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo "$NAME is already running"
+        return 0
+    fi
+    echo "Starting $NAME"
+    mkdir -p "@LOGDIR@"
+    # shellcheck disable=SC2086
+    nohup "$DAEMON" $ARGS >>"$LOGFILE" 2>&1 &
+    echo $! > "$PIDFILE"
+    sleep 1
+    if ! kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo "$NAME failed to start, see $LOGFILE" >&2
+        rm -f "$PIDFILE"
+        return 1
+    fi
+}
+
+stop() {
+    if [ ! -f "$PIDFILE" ]; then
+        echo "$NAME is not running"
+        return 0
+    fi
+    PID="$(cat "$PIDFILE")"
+    echo "Stopping $NAME"
+    kill "$PID" 2>/dev/null || true
+    i=0
+    while kill -0 "$PID" 2>/dev/null && [ "$i" -lt 10 ]; do
+        sleep 1
+        i=$((i + 1))
+    done
+    kill -9 "$PID" 2>/dev/null || true
+    rm -f "$PIDFILE"
+    case "$NAME" in
+        amneziavpn) flush_amnezia_chains ;;
+    esac
+}
+
+status() {
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo "$NAME is running (pid $(cat "$PIDFILE"))"
+    else
+        echo "$NAME is not running"
+        return 1
+    fi
+}
+
+case "$1" in
+    start)   start ;;
+    stop)    stop ;;
+    restart) stop; start ;;
+    status)  status ;;
+    *)       echo "Usage: $0 {start|stop|restart|status}" >&2; exit 2 ;;
+esac

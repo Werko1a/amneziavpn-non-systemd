@@ -1,0 +1,14 @@
+[Unit]
+Description=@DESC@
+@SYSTEMD_AFTER@
+@SYSTEMD_WANTS@
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+ExecStart=@BIN@ @ARGS@
+
+[Install]
+WantedBy=multi-user.target

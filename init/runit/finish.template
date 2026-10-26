@@ -1,0 +1,17 @@
+#!/bin/sh
+# @DESC@ (runit finish)
+# runit passes: $1 = exit code, $2 = signal
+case "@NAME@" in
+    amneziavpn)
+        # A hard kill can leave the AmneziaVPN iptables chains behind.
+        if command -v iptables >/dev/null 2>&1; then
+            iptables -S 2>/dev/null \
+                | sed -n 's/^-N \(amnvpn[^ ]*\)$/\1/p' \
+                | while read -r chain; do
+                    iptables -F "$chain" 2>/dev/null
+                    iptables -X "$chain" 2>/dev/null
+                done
+        fi
+        ;;
+esac
+exit 0

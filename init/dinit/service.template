@@ -1,0 +1,7 @@
+# @DESC@ (dinit)
+type = process
+command = "@BIN@" @ARGS@
+restart = true
+restart-delay = 1
+smooth-recovery = true
+@DINIT_DEPS@

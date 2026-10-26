@@ -1,0 +1,4 @@
+#!/bin/sh
+# @DESC@ (runit)
+exec 2>&1
+exec "@BIN@" @ARGS@
