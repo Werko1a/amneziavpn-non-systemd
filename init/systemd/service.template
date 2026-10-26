@@ -8,7 +8,9 @@ StartLimitIntervalSec=0
 Type=simple
 Restart=always
 RestartSec=1
+ExecStartPre=-/bin/sh -c 'rm -f /tmp/AmneziaVPN* /run/AmneziaVPN* /var/run/AmneziaVPN*'
 ExecStart=@BIN@ @ARGS@
+ExecStopPost=-/bin/sh -c 'for ipt in iptables ip6tables; do command -v "$ipt" >/dev/null 2>&1 || continue; for table in filter nat mangle raw; do "$ipt" -t "$table" -L -n >/dev/null 2>&1 || continue; "$ipt" -t "$table" -S 2>/dev/null | grep -E "\-j amnvpn\." | while read -r r; do "$ipt" -t "$table" $(echo "$r" | sed "s/^-A/-D/") 2>/dev/null || true; done; "$ipt" -t "$table" -S 2>/dev/null | sed -n "s/^-N \(amnvpn[^ ]*\)$/\1/p" | while read -r c; do "$ipt" -t "$table" -F "$c" 2>/dev/null || true; "$ipt" -t "$table" -X "$c" 2>/dev/null || true; done; done; done; rm -f /tmp/AmneziaVPN* /run/AmneziaVPN* /var/run/AmneziaVPN*'
 
 [Install]
 WantedBy=multi-user.target
