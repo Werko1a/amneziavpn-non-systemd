@@ -1,6 +1,6 @@
 # @DESC@ (dinit)
 type = process
-command = "@BIN@" @ARGS@
+command = /bin/sh -c 'rm -f /tmp/AmneziaVPN* /run/AmneziaVPN* /var/run/AmneziaVPN*; exec "@BIN@" @ARGS@'
 restart = true
 restart-delay = 1
 smooth-recovery = true
